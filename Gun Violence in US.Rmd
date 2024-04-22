@@ -1,0 +1,635 @@
+---
+title: "U.S Mass Shootings Analysis"
+output:
+  html_document: default
+  pdf_document: default
+date: "2024-04-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
+```
+
+# Introduction:
+A recent study published by the Harvard Injury Control Research Center shows that the frequency of mass shooting has increased over time. Some of the deadliest mass shootings in the U.S. happened in February 2018 including the [Parkland high school](https://en.wikipedia.org/wiki/Stoneman_Douglas_High_School_shooting) shooting and the massacre at the [Tree of Life synagogue in Pittsburgh](https://en.wikipedia.org/wiki/Pittsburgh_synagogue_shooting) that occured in October 27, 2018 which prompted widespread national horror. But the death toll is not irrelevant to shooters’ motives. Criminologists who’ve studied them believe that body counts play a role in their calculations.But Mass shooting say a lot about the soceiety, country and how well we are making progress in overcoming loss of life.
+
+# Data Preprocessing {.tabset .tabset-fade .tabset-pills}
+
+Load the data from [source](https://www.kaggle.com/zusmani/us-mass-shootings-last-50-years).
+```{r}
+mass_shootings <- read.csv("~/STA 518/Preparations/Using-a-Machine-Learning-to-Predict-US-Mass-Shooting/Mass Shootings Dataset Ver 5.csv")
+```
+
+## Library
+
+Lets import all the necessary libraries which are needed for the data cleaning as well as data vizualizations.
+
+```{r, library, message=FALSE, warning=FALSE}
+library(data.table) # A faster way to handle data frames in R,Creating data frames
+library(readr) # read_csv function file I/O
+library(dplyr) # Data Manipulation
+library(janitor) # perfectly format data.frame column
+library(tidyr) # tidy manipulation
+library(tidyverse) #for data cleaning
+library(stringr) # to manipulate character type data variables
+library(reshape2) # easy to transform data between wide and long formats.
+library(lubridate) # For easy handling dates
+library(tm) # Text Minning
+library(wordcloud) # Form Wordcloud
+library(SnowballC) # goes well with wordcloud
+library(ggthemes) # For prettier ggplot2 plot aesthetics and acessibility for color-blind palettes
+library(plotly) # for interactive visualizations
+library(ggplot2) # Data visualization
+library(knitr) # For pretty tables
+library(scales) # To add more ticks and facilitate plot interpretation
+library(lattice) #  powerful and elegant data visualization 
+library(chron) # Provides chronological objects which can handle dates and times.
+library(cowplot)  # Subplots
+library(maptools) # Tools for Handling Spatial Objects
+library("leaflet") #For Maps
+library(maps) # for map visualization
+library(kableExtra)
+library(DT) # interactive data table
+library(gtable) # construct and manipulate layouts containing graphical elements.
+library(grid) # rewrite of the graphics layout capabilities, plus some support for interaction.
+library(formattable) #Table
+library(ggrepel) # ggrepel provides geoms for ggplot2 to repel overlapping text labels
+library(forcats) # Categorical Data Wrangling
+library(exploreR)
+```
+
+
+## Clean columns.
+
+First step is to clean the variable name so that it is easy to work with.
+
+```{r, clean_names}
+mass_shootings <- clean_names(mass_shootings)
+```
+#Data Modelling 
+The dataset contains information about `r nrow(mass_shootings$s_number)` . The dataset contains Serial No, Title, Location, Date, Summary, Fatalities, Injured, Total Victims, Mental Health Issue, Race, Gender, and Lat-Long information.All the variables are quite self explanatory.
+
+## Head 
+```{r, head}
+(head(mass_shootings,5)) 
+```
+
+`Lets extract some information about our datasets. Let's look at some missing data`
+
+```{r, info}
+str(mass_shootings)  # Display the structure of the dataset
+summary(mass_shootings)  # Provide summary statistics for each variable in the dataset
+
+```
+
+```{r}
+names(mass_shootings)  # Display the names of the variables in the dataset
+
+```
+
+```{r}
+sapply(mass_shootings, function(x) sum(is.na(x)))
+
+```
+## Duplicate data
+```{r, duplicate}
+duplicate_data <- mass_shootings[duplicated(mass_shootings$s_number), ]
+
+# Display duplicate rows
+print(duplicate_data)
+
+# Number of duplicate rows
+print(nrow(duplicate_data))
+
+```
+We don't have any duplicate datasets. All the incident in our datasets are unique. Lets also see if our datasets are recorded in chronological order.
+
+Lets take a quick look at our  datasets. `Peek a boo!`
+
+```{r, glimpse}
+# Lets take a peek of our datasets
+glimpse(mass_shootings)
+```
+
+
+Lets first clean up our data before we vizualise it. There are lot of variables that can be imputed as well we need to clean up the missing values as well as create new variables. 
+
+```{r, factor conversion}
+# Factor conversion
+mass_shootings$date <- lubridate::mdy(mass_shootings$date) # Lets covert date to date from charcter.
+mass_shootings$summary <- as.factor(mass_shootings$summary) # convert summary to factor Variables
+```
+
+
+## Map
+**Lets see the map to get a sense**
+
+```{r world_map}
+world.map <- map_data("state")
+ggplot() + 
+  geom_map(data = world.map, map = world.map,
+           aes(x = long, y = lat, group = group, map_id = region),
+           fill = "white", colour = "black") + 
+  geom_point(data = mass_shootings, 
+             aes(x = longitude, y = latitude, size = fatalities),
+             color = "firebrick", alpha = 0.6) +
+  xlim(-130, -65) +
+  ylim(25, 50) +
+  labs(title = "All Mass Shootings that occurred between 1966 to 2017",
+       subtitle = "Size represents the fatalities") +
+  theme_fivethirtyeight()
+
+```
+
+
+**Date** 
+
+Lets start with date column. We will sepearte date column and create year,month,day, weekdays, day of week variables.According to the research, the days separating mass shooting occurrence went from on average 200 days during the period of 1983 to 2011 to 64 days since 2011.
+```{r, date}
+mass_shootings <- mass_shootings %>% 
+  dplyr::mutate(year = year(date), 
+                month = month(date),
+                month_name = month.abb[month],
+                day = day(date),
+                Weekday = weekdays(date),
+                dow = lubridate::wday(date),
+                Week = week(date))
+```
+
+
+## Title
+
+Lets look at some of the severe Mass Shooting in USA history from our datasets. Datasets is up until last Las Vegas Shootings. 
+
+- Below Wordcloud shows where were most of the Mass shooting occurs.
+
+```{r, wordcloud}
+inci_dents <- mass_shootings %>%
+              select(title,location,total_victims) %>%
+              arrange(desc(total_victims)) %>% 
+              head(10) # Lets pick only top ten otherwise it would be overcrowded.
+
+inci_dents <- inner_join(inci_dents,mass_shootings,by=c("location","title")) 
+#Select column of interest
+inci_dents <- inci_dents %>% 
+                select(title,location,total_victims.x,month,day,year,fatalities,injured)
+
+formattable(inci_dents,align="l",list(total_victims.x=color_tile("lightsalmon","red"),fatalities=color_bar("cyan"),injured=color_bar("darkorchid")))
+
+# Word Cloud
+Corpus <- Corpus(VectorSource(mass_shootings$title))
+Corpus <- Corpus(VectorSource(Corpus))
+Corpus <- tm_map(Corpus, removePunctuation)
+Corpus <- tm_map(Corpus, stripWhitespace)
+Corpus <- tm_map(Corpus, removeWords, stopwords('english'))
+Corpus <- tm_map(Corpus, removeWords, 'shooting')
+wordcloud(Corpus,  scale=c(5,0.5), max.words = 200, use.r.layout=FALSE, 
+          rot.per = 0.3, random.order = FALSE, colors=brewer.pal(8, 'Dark2'))
+```
+
+Like mass shootings in general, school shootings have gone from being a rare tragedy to a tragic reality. Already in 2018 there have been more than a dozen instances of gun violence in U.S. schools.We may be unsure where to even begin with such a heavy topic. Consider asking our kids what their questions are before you give our two cents.But, yet, there are many individuals who suffered childhood and adulthood traumas and severe abuse and they did not become rampage shooters. They developed healthy relationships with others. Are school shooters unable to develop healthy relationships with others?
+## Total Fatalities
+
+Lets Look at the Total Fatalities Number over the course of year. Lets use Line graph and bar plot to show the
+
+```{r, shootings_yr}
+#1. Plot of # number of shootings by year and total victims 
+fatalities_yr<- mass_shootings %>% 
+                      select(year, fatalities, injured, total_victims) %>%
+                      melt(id.vars=c("year"), measure.vars = c("fatalities","injured","total_victims"))
+
+p <- ggplot(data = fatalities_yr %>% 
+        group_by(year, variable) %>% 
+        summarize(shoot_ings = length(year),fatalities = sum(value)),
+             aes(x=year, y=shoot_ings)) + 
+  geom_line(size=.5,color="black") +
+  geom_point(shape=18,size=1, fill="black",stroke=1.2, color = "black") +
+  theme_fivethirtyeight() +
+  scale_fill_gdocs() +
+  ggtitle("Total Mass Shooting \n between 1966-2017") 
+
+q <- ggplot() +
+  geom_bar(data = fatalities_yr %>%
+             filter(variable == "total_victims") %>%
+             group_by(year, variable) %>%
+             summarize(shoot_ings = length(year), fatalities = sum(value)),
+           aes(x=year, y=fatalities, fill = variable), stat="identity") +
+  theme_fivethirtyeight() + 
+  guides(fill = FALSE)+ # Remove legends
+  ggtitle("Total victims 1966-2017") 
+
+plot_grid(p, q, labels = c('A', 'B')) # We can see side by side.
+```
+
+
+
+
+It is clear from above bar graph that shooting is increasing over the course of years. How does the Gender play a role in it?
+
+We will basically sum up into 4 variables. Either the person is Male, Female, Male/Female or Unkown to keep our analysis simple.
+
+```{r, gender}
+# Gender
+# Before Clean up 
+#table(mass_shootings$gender) # Uncomment to see how it looks before.
+
+# Lest recode Male,Female, Male/Female and Unknown.
+mass_shootings$gender[mass_shootings$gender=="M"] <- "Male"
+mass_shootings$gender[mass_shootings$gender=="F"] <- "Female"
+mass_shootings$gender[mass_shootings$gender=="M/F"] <- "Male/Female"
+mass_shootings$gender[mass_shootings$gender==""] <- "Unknown"
+# After Cleanup
+table(mass_shootings$gender)
+# nlevels(mass_shootings$gender) # should give us 4 if you want to double check
+# sum(table(mass_shootings$gender))==nrow(mass_shootings) # Sanity check 
+```
+
+Lets clean up the cause variables and aggregate into same bin which makes more sense to bucket in.
+
+```{r, cause, include = FALSE}
+# Cause
+#table(mass_shootings$cause)
+mass_shootings$cause[mass_shootings$cause%in%c(""," ")]<-"Unknown"
+mass_shootings$cause[mass_shootings$cause %in%c ("domestic disputer","domestic dispute")]<-"Domestic Dispute"
+mass_shootings$cause[mass_shootings$cause %in%c ("anger","frustration")]<-"Anger and Fustration"
+mass_shootings$cause[mass_shootings$cause %in%c ("suspension","failing exams")]<-"suspension & Failing exams"
+mass_shootings$cause[mass_shootings$cause %in%c ("breakup","drunk","religious radicalism","robbery")]<-"Other"
+
+table(mass_shootings$cause)
+```
+
+
+```{r, race, include = FALSE}
+# Race
+# table(mass_shootings$race) # Uncomment to see how it looks before.
+
+# Lets Recode
+mass_shootings$race[mass_shootings$race==""]<-"Unknown"
+
+mass_shootings$race[mass_shootings$race %in%c ("black","Black American or African American/Unknown","Black")]<-"Black American or African American"
+
+mass_shootings$race[mass_shootings$race %in%c ("white","White","White American or European American/Some other Race")]<-"White American or European American"
+         
+mass_shootings$race[mass_shootings$race %in%c ("Some other race","Two or more races")]<-"Other"
+
+mass_shootings$race[mass_shootings$race %in%c ("Asian American/Some other race","Asian","Asian American")]<-"Asian or Asian American"
+
+table(mass_shootings$race)
+```
+
+
+
+## Mental Health Issues: 
+
+How many Mental Health cases do we know about shooters?
+
+```{r, mental_health}
+table(mass_shootings$mental_health_issues)
+mass_shootings$mental_health_issues[mass_shootings$mental_health_issues %in%c( "Unclear","unknown")] <-"Unknown"
+
+```
+
+What are the most common target place choosed by Shooters?
+
+```{r, target}
+# Target
+# sort(xtabs(formula = ~target, data = mass_shootings), decreasing = TRUE) # Uncomment to see 
+#Preprocessing Target
+mass_shootings$target[mass_shootings$target == "random"] <- "Random" 
+mass_shootings$target[mass_shootings$target == "NA"] <- "Unknown" 
+mass_shootings$target[mass_shootings$target %in%c("Family","neighbors","Children","Family/Neighbors","Family+random","Friends","Family+students","partner's family","women")]<-"Friends & Family"
+ 
+mass_shootings$target[mass_shootings$target %in% c("Coworkers","Ex-Coworkers","coworkers","Coworker's Family")]<-"Coworkers"
+        
+mass_shootings$target[mass_shootings$target  %in% c("Students","Students+Teachers","Teachers","school girls","Students+Parents","Family+students")]<-"School"
+        
+mass_shootings$target[mass_shootings$target %in% c("Ex-Wife","Ex-Wife & Family","Ex-Girlfriend","Ex-girlfriend","Ex-GirlFriend","Girlfriend","Ex-Girlfriend+random","Ex-Girlfriend & Family")]<-"Ex- GF/Wife"
+         
+mass_shootings$target[mass_shootings$target %in% c("Policeman","police","Marines","Policeman+Council Member", "TSA Officer","Trooper","Social Workers")]<-"Police/Trooper" 
+         
+mass_shootings$target[mass_shootings$target %in% c("party guests","uninvited guests","club members","birthday party bus")]<-"Parties"
+          
+mass_shootings$target[mass_shootings$target%in% c("Sikhs","monks","prayer group")]<-"Religious Group"
+
+mass_shootings$target[mass_shootings$target%in% c("welding shop employees","hunters","lawyers","black men","Congresswoman","Contestant","drug dealer", "House Owner", "protestors","postmaster","rapper+random","psychologist+psychiatrist","basketball players")]<-"Other"
+   
+sort(table(mass_shootings$target), decreasing = TRUE)        
+```
+
+Where does Shooter prefer to choose as choice of their location?
+
+```{r, open_close}
+#Open_close_location
+
+# sort(xtabs(formula = ~open_close_location, data = df_1), decreasing = TRUE)
+mass_shootings$open_close_location[mass_shootings$open_close_location == "Open+CLose"] <- "Open+Close" 
+sort(xtabs(formula = ~open_close_location, data = mass_shootings), decreasing = TRUE)
+```
+
+```{r,location}
+# Location
+# Lets keep the location column just by passing remove = FALSE
+mass_shootings<- mass_shootings %>% separate(location , into = c("city", "state"), sep = ",", remove = FALSE) # split the location
+mass_shootings <- mass_shootings %>% mutate(city = tolower(city))# keep all the elemet to lower case
+```
+We get additional error for 4 rows [147, 176, 225, 241]. Lets dive into those column and see why we are getting that error.
+
+
+
+
+```{r, city}
+# Lets look into those rows why it is generating error
+mass_shootings[c(147, 176, 225, 241), c("location", "city", "state")]
+```
+We can see in these 4 rows we have multiple comma to seperate thats why it throws an error. It took first comma to split into city and state. We can fix these by making seperate more friendly.
+
+
+```{r, city_state}
+# Now we are splitting based on last comma to city and state.
+mass_shootings<- separate(mass_shootings, location, c("city", "state"), sep = ",(?=[^,]+$)", remove=FALSE)
+mass_shootings[c(147, 176, 225, 241), c("location", "city", "state")]
+```
+
+We can also find out how many unique values  are there for any Location if State is NA:
+
+```{r, state}
+sort(table(mass_shootings$state),decreasing = TRUE)
+```
+But We know that Washington DC is not Considered as State. A state which is referred as "Taxation Without Representation". Lets find out which column is it. We can ignore it or make a seperate state just for analysis.
+```{r, state_loc}
+unique((mass_shootings[is.na(mass_shootings$state),c("location", "city", "state")])[ ,1]) # 1 Is for location, 2 is for city.
+mass_shootings %>% filter(location == "Washington D.C.")
+```
+
+## STATES
+
+
+
+When We break down by the states which states have most of the Shootings.
+
+```{r, shooting_state}
+# sort(table(mass_shootings$state),decreasing = TRUE)
+# sum(is.na(mass_shootings$state)) # we have 46 Missing
+
+p <-mass_shootings %>%
+      filter(!is.na(state)) %>%
+      group_by(state) %>%
+      summarise(count = n()) %>%
+      arrange(desc(count)) %>%
+      ungroup() %>%
+      mutate(state = reorder(state,count)) %>%
+      head(10) %>%
+      ggplot(aes(x = state,y = count)) +
+      geom_bar(stat='identity',color="white", fill = "lightslategray") +
+      geom_text(aes(x = state, y = 1, label = count),
+              hjust=0, vjust=.5, size = 4, color = 'black',
+              fontface = 'bold') +
+    labs(x = 'States', 
+         y = 'No. of Shootings', 
+         title = 'Number of Shootings/State') +
+       coord_flip() +
+       theme_fivethirtyeight()
+ggplotly(p)
+
+# Percentage by race
+perc_state<- mass_shootings%>%
+              filter(!is.na(state)) %>% 
+              group_by(state) %>%
+              summarise(count=n()) %>%
+              mutate(perc=round((count/sum(count))*100),"%") %>%
+              arrange(desc(count)) %>% 
+              head(10)
+formattable(perc_state,align=c("l","r","r"),list(count=color_bar("mediumslateblue"),perc=color_tile("white","lightsalmon")))
+```
+
+
+
+
+
+**California,Florida and Texas** have the most shooters.
+
+Now we are left with empty values in Location, and there are 45 of those. We can deal with those missing states with he use of Latitude and Longitude data which is avialable to us.But for these we can use google geocode variables but you need API for that. 
+
+For all these observations, Location is empty. But coordinates are given in Longitude and Latitude. This is one way to derive address from coordinates to further be used for filling State and City values:
+
+
+```{r Age}
+# Convert age variable to numeric
+mass_shootings$age <- as.numeric(mass_shootings$age)
+
+# Impute missing values of Age with mean value of non-missing ages
+mass_shootings$age <- ifelse(is.na(mass_shootings$age),
+                              mean(mass_shootings$age, na.rm = TRUE),
+                              mass_shootings$age)
+
+# Filter mass shootings based on age groups
+shootings_less_than_20 <- mass_shootings %>% filter(between(age, 0, 20))
+shootings_20_30 <- mass_shootings %>% filter(between(age, 20, 30))
+shootings_30_40 <- mass_shootings %>% filter(between(age, 30, 40))
+shootings_40_50 <- mass_shootings %>% filter(between(age, 40, 50))
+shootings_50_60 <- mass_shootings %>% filter(between(age, 50, 60))
+shootings_60_70 <- mass_shootings %>% filter(between(age, 60, 70))
+shootings_70_80 <- mass_shootings %>% filter(between(age, 70, 80))
+
+```
+# Decade
+
+```{r}
+mass_shootings <- mass_shootings %>% 
+  mutate(decade = (case_when(year >= 1960 & year < 1970 ~ "1960s", 
+                             year >= 1970 & year < 1980 ~ "1970s", 
+                             year >= 1980 & year < 1990 ~ "1980s", 
+                             year >= 1990 & year < 2000 ~ "1990s", 
+                             year >= 2000 & year < 2010 ~ "2000s", 
+                             year >= 2010 & year < 2020 ~ "2010s")))
+decade_boxplot <- mass_shootings %>% 
+  ggplot(aes(x =decade, y = age, fill = decade)) +
+  geom_boxplot() + 
+  labs(x = "Each Decade", title = "Age Distribution of Mass Shooter decadewise")+
+  theme_fivethirtyeight()
+ggplotly(decade_boxplot)
+```
+# Race
+
+
+```{r, Shooting_race}
+p <-mass_shootings %>%
+       filter(!is.na(race)) %>%
+        group_by(race) %>%
+        summarise(count = n()) %>%
+        arrange(desc(count)) %>%
+        mutate(race = reorder(race,count)) %>% 
+        ungroup() %>%
+        ggplot(aes(x = race,y = count)) +
+        geom_bar(stat='identity',color="white", fill = "#D8BFD8") +
+        geom_text(aes(x = race, y = 10, label = count),
+              hjust=0, vjust=.5, size = 4, color = 'black',
+              fontface = 'bold') +
+        coord_flip() +
+       labs(x = 'Race', 
+            y = 'No. of Shootings', 
+            title = 'Number of Shootings/Race')+
+  theme_fivethirtyeight()
+       
+ggplotly(p)
+```
+
+# Percentage by race
+```{r}
+# Percentage by race
+perc_race <- mass_shootings%>%
+              group_by(race) %>%
+              summarise(count=n()) %>%
+              mutate(perc=round((count/sum(count))*100)) %>%
+              arrange(desc(count))
+
+formattable(perc_race,align=c("l","r","r"),list(count=color_bar("mediumslateblue"),perc=color_tile("white","lightsalmon")))
+
+
+# Pie chart
+shooter <- data.frame(table(mass_shootings$race))
+colnames(shooter) <- c("race","freq")
+ggplot(shooter,aes(x=race,
+                   y=freq,
+                   fill=race))+
+  theme(legend.position="none")+
+  geom_bar(stat="identity",width = 1)+
+  coord_polar(theta = "y")
+```
+
+
+The statistic shows the number of mass shootings in the United States between 1982 and November 19, 2018, by race and ethnicity of the shooter(s). Between 1982 and November 2018, 60 out of 107 mass shootings were initiated by White shooters. The Las Vegas strip massacre in 2017 had the highest number of victims between 1982 and 2018, with 58 people killed, and over 500 injured.
+
+Outer legends represents the White American or European American. 
+
+`Is it fare to say that some other races are also participating in Mass Shooting beside Whites.`
+
+
+## Build and Evaluate the Logistic Regression Model
+
+
+First, let's split the data into training and testing sets
+
+```{r}
+# Load the caret package
+library(caret)
+
+# Set seed for reproducibility
+set.seed(6496)
+
+```
+
+
+#Split the data
+
+```{r}
+# Split the data into 70% training and 30% testing
+train_index <- createDataPartition(incident_data$fatal_incident, p = 0.7, list = FALSE)
+train_data <- incident_data[train_index, ]
+test_data <- incident_data[-train_index, ]
+
+```
+
+# Train the Model
+Now, let's train the logistic regression model using the training data.
+
+```{r}
+incident_data <- mass_shootings
+
+# Convert target variable to binary (1 for incidents with fatalities, 0 otherwise)
+incident_data$fatal_incident <- ifelse(incident_data$fatalities > 0, 1, 0)
+
+# Select relevant features for the model
+features <- c("age", "gender", "race", "mental_health_issues")
+
+# Filter out rows with missing values in the selected features
+incident_data <- na.omit(incident_data[, c(features, "fatal_incident")])
+
+# Train-test split
+set.seed(123)  # for reproducibility
+train_indices <- sample(nrow(incident_data), 0.7 * nrow(incident_data))  # 70% train, 30% test
+train_data <- incident_data[train_indices, ]
+test_data <- incident_data[-train_indices, ]
+
+# Train the logistic regression model
+logistic_model <- glm(fatal_incident ~ ., data = train_data, family = binomial(link = "logit"))
+
+# Summary of the model
+summary(logistic_model)
+
+# Predict on test data
+predicted_probs <- predict(logistic_model, newdata = test_data, type = "response")
+
+# Convert predicted probabilities to binary predictions (0 or 1)
+predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
+
+
+```
+
+#Test the Model
+```{r}
+# Compute accuracy
+accuracy <- mean(predicted_classes == test_data$fatal_incident)
+cat("Accuracy:", accuracy, "\n")
+
+# Compute confusion matrix
+conf_matrix <- table(Actual = test_data$fatal_incident, Predicted = predicted_classes)
+print(conf_matrix)
+
+# Compute precision, recall, and F1-score
+precision <- conf_matrix[2, 2] / sum(predicted_classes)
+recall <- conf_matrix[2, 2] / sum(test_data$fatal_incident)
+f1_score <- 2 * precision * recall / (precision + recall)
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("F1-score:", f1_score, "\n")
+
+# Plot ROC curve
+library(pROC)
+roc_curve <- roc(test_data$fatal_incident, predicted_probs)
+plot(roc_curve, main = "ROC Curve", col = "blue")
+auc_value <- auc(roc_curve)
+cat("AUC:", auc_value, "\n")
+
+```
+
+```{r}
+# Predict on test data
+predicted_probs <- predict(logistic_model, newdata = test_data, type = "response")
+
+# Convert predicted probabilities to binary predictions (0 or 1)
+predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
+
+```
+
+
+
+
+
+```{r}
+# Predict on test data
+predicted_probs <- predict(logistic_model, newdata = test_data, type = "response")
+
+# Convert predicted probabilities to binary predictions (0 or 1)
+predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
+
+# Evaluate the model performance
+confusion_matrix <- table(predicted_classes, test_data$fatal_incident)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+# Print the confusion matrix and accuracy
+print(confusion_matrix)
+print(paste("Accuracy:", accuracy))
+
+```
+
+
+# Logistic regression equation
+P=eβ0+β1X1/1+eβ0+β1X1P=eβ0+β1X1/1+eβ0+β1X1
+# Get the coefficients of the logistic regression model
+```{r}
+coefficients <- coef(logistic_model)
+print(coefficients)
+
+```
+
